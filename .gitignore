@@ -1,0 +1,5 @@
+tools/
+states/
+*_TTrace_*
+*.vvp
+obj_dir/

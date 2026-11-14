@@ -1,258 +1,81 @@
-# Intent-to-Auditable-Trust-Object (IATO)
+# IĀTŌ
 
-**Structural abstraction theory of observation-induced equivalence over heterogeneous state spaces.**
+**Intent to Auditable Trust Object.** The monolith of the series: one repo where hardware behaviour is written down as something a machine can check.
 
-Grounded in structural operational semantics (SOS), labelled transition systems (LTS), and coalgebraic behavioural structure — reinterpreted through an observation-first perspective.
+This series covers the layer underneath the operating system: how caches agree on a value, how a page stops being reachable after it is unmapped, how PCIe orders the writes a device posts, and what a load is allowed to return under a given memory model. Each piece is a small, executable model with an invariant, and each claim in this README is backed by a check that runs in CI.
 
-Derived as an emblematic representation of OS internals. The framework models behaviour invariant across cache, database, and timing side-channel characteristics. Spectre and Meltdown disclosure primitives emerge as direct by-products: they are admissible transformations.
+## What is here
 
+| Area | Artefact | What it checks | Status |
+|---|---|---|---|
+| Cache coherence | `spec/coherence/MESI.tla` | Single writer, multiple readers; every valid copy holds the latest write; memory is current when no cache is dirty | TLC passes, 3 caches, 2 values, 120 states |
+| Cache coherence | `spec/coherence/MOESI.tla` | As MESI, plus a single Owned holder that only coexists with sharers | TLC passes, 3 caches, 2 values, 216 states |
+| Virtual memory | `spec/tlb/TLBShootdown.tla` | No core holds a translation to a frame after it is freed | TLC passes; the `SkipWait` variant fails with a counterexample |
+| PCIe ordering | `spec/pcie/TLPOrdering.tla` | A consumer that sees the flag also sees the data | TLC passes with strict posted ordering; setting Relaxed Ordering on the flag write fails |
+| Memory models | `memory-models/litmus.py` | SB, SB+fences, MP, MP+rel+acq and LB under SC, x86 TSO and a simplified relaxed model | All 15 expected allow or forbid results hold |
+| RTL | `rtl/tlp_hdr_decode.sv` | Decodes Fmt, Type, TC, Attr, Length, Requester ID, Tag, byte enables and address for 3DW and 4DW memory requests and completions; flags byte enable violations | Verilator lint clean, Icarus testbench passes |
+| RTL | `rtl/tlb.sv` | Fully associative TLB with fill, invalidate by VPN and invalidate all; never holds two valid entries for one VPN | Verilator lint clean, Icarus testbench passes |
 
-## Motivation
-
-Classical behavioural equivalence assumes a fixed, uniform state space and derives equivalence from transition structure. This is inadequate for OS-level execution environments where:
-
-- Execution carriers are architecture-indexed, vector-length-indexed, or VM-level structured spaces
-- No canonical state space exists
-- Timing, cache, and microarchitectural state are not first-class in the semantic model but leak through observation
-
-This framework inverts the dependency. **Observation is primary.** Equivalence is induced, not assumed. Transformations are constrained by preservation of the observational quotient — not by semantic proximity or metric approximation.
-
-The implication for side-channel analysis is that a transformation (context switch, speculative execution, cache eviction, VM migration) is **admissible** iff it preserves `O_μ(T(s)) = O_λ(s)`. Spectre/Meltdown violate this constraint by construction — they permit a distinguishing observation over states, abstraction treats as equivalent.
-
-
-## Repo Structure
+Run everything with:
 
 ```
-obs-equiv/
-├── README.md
-├── theory/
-│   ├── primitives.md          # Core structural primitives
-│   ├── equivalence.md         # Observation-induced quotient semantics
-│   ├── transformations.md     # Admissibility constraints on T_λμ
-│   └── refinement.md          # Observational discrimination ordering
-├── os-model/
-│   ├── carrier-index.md       # Heterogeneous execution carrier taxonomy
-│   ├── cache-channel.md       # Cache side-channel as inadmissible transform
-│   ├── timing-channel.md      # Timing channel as observational distinguisher
-│   └── spectre-meltdown.md    # Spectre/Meltdown as quotient-violation primitives
-└── formal/
-    ├── obs-map.v              # Coq/Lean sketch — observation map family
-    ├── quotient.v             # Quotient construction
-    └── admissibility.v        # Admissibility predicate for transformations
+./scripts/check.sh
 ```
 
+It needs Java 11 or later, Python 3, Icarus Verilog and Verilator. The script downloads `tla2tools.jar` on first run.
 
+## Design choices
 
-## Core Framework
+**Small models, honest bounds.** Every TLA+ model is checked exhaustively at a small size (three caches, three cores, one line, one page). That proves the invariant for that configuration, not for every size. The bounds are in each `.cfg` file.
 
-### Key Primitives
+**Atomic bus.** The coherence models treat each bus transaction as one step. They check the stable state protocol, not transient states, so they say nothing yet about races in a directory or a CHI style interconnect. Transient states are the next step.
 
-| Primitive | Definition |
-|---|---|
-| Execution carrier | `S_λ` — architecture/context-indexed state space |
-| Observation map | `O_λ : S_λ → Obs` |
-| Induced equivalence | `s ~ t ⟺ O(s) = O(t)` |
-| Quotient | `Q = S / ~` |
-| Admissible transform | `T_λμ : S_λ → S_μ` such that `O_μ(T(s)) = O_λ(s)` |
+**Failing variants on purpose.** The `_bug.cfg` configs are expected to fail. A model that can never fail checks nothing, so each safety property ships with the one change that breaks it.
 
-No metric. No optimisation. No implementation grounding.
+**The relaxed model is a teaching model.** It allows any reordering of independent accesses unless a fence, an acquire or a release forbids it. It ignores dependencies and multi copy atomicity, so it is close to Release Consistency in spirit and is not the Arm or RISC-V axiomatic model. Those belong in herd7 or Sail, which this repo does not use yet.
 
+## Coherence states and AMBA CHI
 
-### (A) Observational Structure is Primary
+CHI names its cache states by validity, uniqueness and dirtiness. The MOESI model maps onto the CHI stable states like this:
 
-A family of observation maps over non-isomorphic carriers:
+| MOESI | CHI | Meaning |
+|---|---|---|
+| M | UD (Unique Dirty) | Only copy, modified |
+| E | UC (Unique Clean) | Only copy, matches memory |
+| S | SC (Shared Clean) | One of several copies; this copy is not responsible for writeback |
+| O | SD (Shared Dirty) | Shared, and this copy is responsible for writeback |
+| I | I (Invalid) | No copy |
 
-```
-O_λ : S_λ → Obs
-```
+CHI also defines UCE and UDP for partial lines, which these models do not cover.
 
-Domains `S_λ` need not be identical. `Obs` is a shared observational codomain — the only structure that is uniform across execution contexts.
-
-In OS terms: `Obs` captures what is architecturally visible to an unprivileged observer — register file snapshots, memory-mapped I/O reads, syscall return values. It does **not** include microarchitectural state (cache occupancy, TLB residency, branch predictor state) — until those become observable through a side channel.
-
-
-
-### (B) Equivalence is Induced, Not Assumed
-
-No fixed bisimulation relation is assumed a priori.
+## Layout
 
 ```
-s ~ t  ⟺  O(s) = O(t)
+spec/
+  coherence/   MESI.tla, MOESI.tla
+  tlb/         TLBShootdown.tla (+ _bug variant)
+  pcie/        TLPOrdering.tla (+ _bug variant)
+memory-models/ litmus.py
+rtl/           tlp_hdr_decode.sv, tlb.sv, tb/
+scripts/       check.sh
+docs/          references.md
 ```
 
-Equivalence is defined **after** structural heterogeneity is introduced — not before. The quotient `Q = S / ~` is the primary semantic object.
+## Roadmap
 
-```
--- Haskell sketch
-type Obs = ...                          -- observational domain
-type S λ = ...                          -- carrier indexed by λ
+1. Transient states and a directory for the coherence models, then a CHI request and snoop subset.
+2. PCIe completion ordering: a read completion must not pass posted writes headed the same way.
+3. SystemVerilog assertions on the TLB checked with a formal tool, not only simulated.
+4. Arm Stage 2 translation and TLBI semantics, cross checked against Sail.
 
-obs :: S λ -> Obs
+## History
 
-equiv :: S λ -> S λ -> Bool
-equiv s t = obs s == obs t
-```
+The earlier IĀTŌ material (observation induced equivalence and notes on Arm EL2, Stage 2 isolation, KVM and SVE2) is preserved at the tag `archive/v1`.
 
+## References
 
+See [`docs/references.md`](docs/references.md). Vendor specifications are cited by document and section; no specification text is reproduced here.
 
-### (C) Transformations as the Real Object of Study
+## License
 
-```
-T_λμ : S_λ → S_μ
-```
-
-Admissibility constraint:
-
-```
-O_μ(T_λμ(s)) = O_λ(s)   ∀s ∈ S_λ
-```
-
-This is not a bisimulation condition on transition structure. It is a **preservation condition on the observational quotient**. A transformation that alters which states are observationally distinguishable is inadmissible.
-
-```python
-def admissible(T, obs_lambda, obs_mu, S_lambda):
-    """
-    T          : S_lambda -> S_mu
-    obs_lambda : S_lambda -> Obs
-    obs_mu     : S_mu     -> Obs
-    """
-    return all(
-        obs_mu(T(s)) == obs_lambda(s)
-        for s in S_lambda
-    )
-```
-
-
-
-### (D) Refinement as Observational Discrimination Ordering
-
-Not a fixed-point construction.
-
-```
-S_λ ≤ S_μ  ⟺  (s ~_μ t  ⟹  s ~_λ t)
-```
-
-A finer carrier distinguishes more states. A coarser carrier collapses more states into equivalence classes. Refinement is the preorder on carriers induced by the relative distinguishing power of their observation maps.
-
-In OS terms: moving from architectural to microarchitectural observation is a refinement step — it separates states that were previously equivalent under the coarser map.
-
-
-
-## OS Internals Grounding
-
-This framework is derived as an emblematic representation of OS internals. The execution carriers directly correspond to observable levels in a real system:
-
-```
-Execution carrier S_λ         OS-level instantiation
-─────────────────────────────────────────────────────
-S_arch                         architectural ISA state
-S_uarch                        microarchitectural state (cache, TLB, BPU)
-S_vm                           hypervisor-level virtualised state
-S_db                           persistent store / transactional state
-S_rt                           real-time / scheduler-visible timing state
-```
-
-Observation maps at each level define what is **architecturally visible** vs what leaks through covert channels.
-
-
-## Side-Channel Analysis: Spectre and Meltdown as Quotient Violations
-
-Spectre-class and Meltdown-class vulnerabilities are a direct by-product of this model. They are inadmissible transformations — transformations that violate the observational quotient preservation constraint.
-
-### Formal characterisation
-
-Let:
-- `S_arch` = architectural state space (ISA-visible)
-- `S_uarch` = microarchitectural state space (cache, BPU, TLB)
-- `O_arch : S_arch → Obs` = architectural observation map
-- `O_uarch : S_uarch → Obs_μ` = microarchitectural observation map
-
-Under normal operation, speculative execution is intended to be a transparent implementation detail:
-
-```
-O_arch(T_spec(s)) = O_arch(s)   -- intended invariant
-```
-
-Spectre/Meltdown break this. The speculative transform `T_spec` causes a microarchitectural side-effect (cache line load) that is observable via a timing channel:
-
-```
-O_uarch(T_spec(s)) ≠ O_uarch(s)
-```
-
-And because `O_uarch` can be probed from an unprivileged context (FLUSH+RELOAD, PRIME+PROBE), it becomes a distinguisher over states that `O_arch` treats as equivalent:
-
-```
-∃ s, t :  O_arch(s) = O_arch(t)   -- architecturally equivalent
-          O_uarch(T_spec(s)) ≠ O_uarch(T_spec(t))   -- μarch-distinguishable
-```
-
-This is exactly a quotient violation. `T_spec` is inadmissible under the observational quotient of `S_arch`.
-
-### Cache and timing channels — general form
-
-```
-                    ┌──────────────┐
-                    │   S_arch     │   architectural carrier
-                    │  O_arch(s)   │──────────────────────► Obs_arch
-                    └──────┬───────┘
-                           │ T_spec (speculative exec / context switch / syscall)
-                           ▼
-                    ┌──────────────┐
-                    │   S_uarch    │   microarchitectural carrier
-                    │  O_uarch(s)  │──────────────────────► Obs_uarch
-                    └──────────────┘
-                           │
-                    timing probe / cache probe (FLUSH+RELOAD)
-                           │
-                           ▼
-                    distinguishable  ──► quotient violated ──► inadmissible
-```
-
-The invariant that the framework enforces — stability of the observational quotient under admissible transformations — is precisely the property that hardware and OS mitigations (KPTI, Retpoline, microcode serialisation, speculation barriers) attempt to restore.
-
-
-## Correctness Characterisation
-
-> Correctness = stability of the observational quotient under admissible transformations.
-
-A system is behaviourally correct iff for every admissible transformation `T_λμ` and every pair of states `s, t`:
-
-```
-s ~ t  ⟹  T_λμ(s) ~ T_λμ(t)
-```
-
-Equivalently: admissible transformations induce well-defined maps on the quotient `Q = S / ~`.
-
-This characterisation is:
-- independent of metrics
-- independent of optimisation criteria
-- independent of implementation-specific assumptions
-- directly applicable to cache, DB transaction, and timing side-channel analysis
-
----
-
-### References:
-
-Milner, Robin. Communication and Concurrency. Prentice Hall, 1989.
-
-Park, David. “Concurrency and Automata on Infinite Sequences.” Theoretical Computer Science, vol. 138, no. 2, 1982, pp. 167–183.
-
-Larsen, Kim G., and Arne Skou. “Bisimulation through Probabilistic Testing.” Information and Computation, vol. 94, no. 1, 1991, pp. 1–28.
-
-Milner, Robin. A Calculus of Communicating Systems. Springer, 1980.
-
-Hennessy, Matthew, and Robin Milner. “Algebraic Laws for Nondeterminism and Concurrency.” Journal of the ACM, vol. 32, no. 1, 1985, pp. 137–161.
-
-Winskel, Glynn. The Formal Semantics of Programming Languages: An Introduction. MIT Press, 1993.
-
-Plotkin, Gordon D. “A Structural Approach to Operational Semantics.” Aarhus University, 1981.
-
-Aspinall, David, and Lars Birkedal. “Type-Theoretic Foundations of Programming Languages.” In Handbook of Logic in Computer Science, vol. 5, Oxford University Press, 2000.
-
-Rutten, J. (2000). Universal coalgebra: a theory of systems. *TCS 249(1).*
-
-Kocher et al. (2019). Spectre attacks: exploiting speculative execution. *IEEE S&P.*
-
-Lipp et al. (2018). Meltdown: reading kernel memory from user space. *USENIX Security.*
-
-Ge et al. (2018). A survey of microarchitectural timing attacks. *J. Cryptographic Engineering.*
+Apache 2.0. See `LICENSE`.
