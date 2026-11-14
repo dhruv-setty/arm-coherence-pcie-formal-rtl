@@ -4,3 +4,10 @@ states/
 obj_*/
 obj_dir/
 sail_smt_cache
+*.ko
+*.o
+*.mod
+*.mod.c
+*.cmd
+modules.order
+Module.symvers
