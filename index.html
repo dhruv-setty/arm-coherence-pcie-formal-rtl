@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IĀTŌ results</title><style>body{font:15px/1.5 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#222}
+table{border-collapse:collapse;margin:1rem 0}td,th{border:1px solid #ccc;padding:4px 10px;text-align:right}th{background:#f4f4f4}
+pre{background:#f7f7f7;padding:1rem;overflow:auto}img{max-width:100%}</style></head><body>
+<h1>IĀTŌ results</h1>
+<p>Generated from tag v0.2.0 of the repository. Simulation, open tool synthesis and one silicon run; no physical FPGA.</p>
+<h2>DMA engine and driver (Verilator, MAX_RD 8)</h2><table><tr><th>Copy size</th><th>Memory latency</th><th>Cycles</th><th>Bytes per cycle</th><th>Verified</th></tr><tr><td>64 B</td><td>1</td><td>833</td><td>2.459</td><td>yes</td></tr><tr><td>512 B</td><td>1</td><td>4417</td><td>3.709</td><td>yes</td></tr><tr><td>4096 B</td><td>1</td><td>33089</td><td>3.961</td><td>yes</td></tr><tr><td>65536 B</td><td>1</td><td>131153</td><td>3.998</td><td>yes</td></tr><tr><td>64 B</td><td>8</td><td>1089</td><td>1.881</td><td>yes</td></tr><tr><td>512 B</td><td>8</td><td>4897</td><td>3.346</td><td>yes</td></tr><tr><td>4096 B</td><td>8</td><td>35361</td><td>3.707</td><td>yes</td></tr><tr><td>65536 B</td><td>8</td><td>139401</td><td>3.761</td><td>yes</td></tr><tr><td>64 B</td><td>32</td><td>2625</td><td>0.780</td><td>yes</td></tr><tr><td>512 B</td><td>32</td><td>11809</td><td>1.387</td><td>yes</td></tr><tr><td>4096 B</td><td>32</td><td>85281</td><td>1.537</td><td>yes</td></tr><tr><td>65536 B</td><td>32</td><td>336201</td><td>1.559</td><td>yes</td></tr></table>
+<h2>Waveform, two 64 B descriptors</h2><img src="dma_two_descriptors.png" alt="Simulated logic analyser view of the DMA engine">
+<h2>ECP5 synthesis (Yosys, nextpnr, LFE5U-25F, out of context)</h2><table><tr><th>Module</th><th>LUT4</th><th>FF</th><th>Carry</th><th>Fmax (MHz)</th></tr><tr><td>dma_engine</td><td>966</td><td>954</td><td>154</td><td>129.10</td></tr><tr><td>cfg_space</td><td>138</td><td>75</td><td>0</td><td>no reg to reg path</td></tr><tr><td>tlb</td><td>912</td><td>166</td><td>0</td><td>115.47</td></tr><tr><td>tlp_hdr_decode</td><td>74</td><td>0</td><td>0</td><td>no reg to reg path</td></tr></table>
+<h2>Litmus on Neoverse V2, 2,000,000 iterations each</h2><pre>test           iterations   r0=0,r1=0   r0=0,r1=1   r0=1,r1=0   r0=1,r1=1   relaxed outcome
+SB                2000000       10576      994429      994995           0   10576
+SB+dmb            2000000           0     1001528      997188        1284   0
+MP                2000000     1004043      627499         181      368277   181
+MP+dmb            2000000      999822      999661           0         517   0
+MP+stlr+ldar      2000000     1002095      686901           0      311004   0
+LB                2000000      818335      260871      920794           0   0
+</pre>
+<p><a href="https://github.com/whatheheckisthis/Intent-to-Auditable-Trust-Object">Source</a></p></body></html>
