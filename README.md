@@ -24,8 +24,7 @@ The series sits under the operating system. How caches agree on a value. How a C
 6. [CHI mapping](#6-chi-mapping)
 7. [Layout](#7-layout)
 8. [Roadmap](#8-roadmap)
-9. [History](#9-history)
-10. [License](#10-license)
+
 
 ## 1. Results at a glance
 
@@ -171,11 +170,3 @@ Requirements: Java 11 or later, Python 3, Icarus Verilog, Verilator, a C compile
 3. PCIe: completion ordering and a TLP generator wired to the DMA engine.
 4. Formal: SystemVerilog assertions on the DMA handoff, checked with SymbiYosys.
 5. Arm: Stage 2 translation and TLBI semantics from DDI0487K, cross checked against QEMU target/arm.
-
-## 9. History
-
-The earlier IĀTŌ material is preserved at the tag `archive/v1`.
-
-## 10. License
-
-Apache 2.0. See `LICENSE`.
