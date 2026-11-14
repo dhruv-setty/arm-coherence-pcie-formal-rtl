@@ -1,80 +1,111 @@
 # IĀTŌ
 
-**Intent to Auditable Trust Object.** The monolith of the series: one repo where hardware behaviour is written down as something a machine can check.
+**Intent to Auditable Trust Object.** The monolith of the series: one repo where hardware behaviour is written down as something a machine can check, then built, simulated, synthesised and measured.
 
-This series covers the layer underneath the operating system: how caches agree on a value, how a page stops being reachable after it is unmapped, how PCIe orders the writes a device posts, and what a load is allowed to return under a given memory model. Each piece is a small, executable model with an invariant, and each claim in this README is backed by a check that runs in CI.
+The series sits under the operating system. How caches agree on a value. How a CHI home node serialises requests. How a page stops being reachable after it is unmapped. How PCIe orders posted writes and how software finds and sizes a device. How a DMA engine and its driver hand descriptors back and forth. What a load may return on real Arm silicon. Every number below comes from a run of `./scripts/check.sh` or the bench scripts, and CI repeats the checks on every push.
 
-## What is here
+## Results at a glance
 
-| Area | Artefact | What it checks | Status |
-|---|---|---|---|
-| Cache coherence | `spec/coherence/MESI.tla` | Single writer, multiple readers; every valid copy holds the latest write; memory is current when no cache is dirty | TLC passes, 3 caches, 2 values, 120 states |
-| Cache coherence | `spec/coherence/MOESI.tla` | As MESI, plus a single Owned holder that only coexists with sharers | TLC passes, 3 caches, 2 values, 216 states |
-| Virtual memory | `spec/tlb/TLBShootdown.tla` | No core holds a translation to a frame after it is freed | TLC passes; the `SkipWait` variant fails with a counterexample |
-| PCIe ordering | `spec/pcie/TLPOrdering.tla` | A consumer that sees the flag also sees the data | TLC passes with strict posted ordering; setting Relaxed Ordering on the flag write fails |
-| Memory models | `memory-models/litmus.py` | SB, SB+fences, MP, MP+rel+acq and LB under SC, x86 TSO and a simplified relaxed model | All 15 expected allow or forbid results hold |
-| RTL | `rtl/tlp_hdr_decode.sv` | Decodes Fmt, Type, TC, Attr, Length, Requester ID, Tag, byte enables and address for 3DW and 4DW memory requests and completions; flags byte enable violations | Verilator lint clean, Icarus testbench passes |
-| RTL | `rtl/tlb.sv` | Fully associative TLB with fill, invalidate by VPN and invalidate all; never holds two valid entries for one VPN | Verilator lint clean, Icarus testbench passes |
+| Area | Artefact | Result |
+|---|---|---|
+| CHI coherence | `spec/chi/CHIHome.tla` | RN-F states I, UC, UD, SC, SD with an HN-F that serialises ReadShared, ReadUnique and WriteBackFull, one snoop per step. SWMR, single dirty copy, data value and memory currency hold over 11,590 states (3 RN-F, 2 values). Request progress holds with a fair home arbiter; with weak fairness TLC finds a starving requester |
+| Coherence | `spec/coherence/MESI.tla`, `MOESI.tla` | Atomic bus baselines, 120 and 216 states, all invariants hold |
+| Virtual memory | `spec/tlb/TLBShootdown.tla` | No core keeps a translation to a freed frame; freeing before every IPI ack fails |
+| PCIe ordering | `spec/pcie/TLPOrdering.tla` | Flag then data is safe with strict posted ordering; Relaxed Ordering on the flag write lets the consumer read stale data |
+| PCIe enumeration | `rtl/pcie/cfg_space.sv`, `rtl/tb/tb_enum.sv` | Type 0 header with a 32 bit BAR and a 64 bit prefetchable BAR pair. The testbench scans bus 0, skips empty slots, sizes every BAR by writing all ones, assigns naturally aligned addresses and enables Memory Space and Bus Master |
+| PCIe TLPs | `rtl/pcie/tlp_hdr_decode.sv` | 3DW and 4DW memory request and completion decode with byte enable checks |
+| DMA | `rtl/dma/dma_engine.sv`, `driver/dma_drv.c` | Descriptor ring engine with OWN and DONE handoff, driven by a C driver under Verilator. Every copy in the sweep is verified byte for byte |
+| MMU | `rtl/mmu/tlb.sv` | Fully associative TLB with fill, invalidate by VPN and invalidate all |
+| Memory models | `memory-models/litmus.py` | 15 expected allow or forbid results under SC, TSO and a simplified relaxed model all hold |
+| Silicon | `memory-models/hw/litmus_hw.c` | Litmus runs on a Neoverse V2 host; see below |
 
-Run everything with:
+## DMA engine and driver
 
-```
-./scripts/check.sh
-```
+The engine walks a ring of 32 byte descriptors in host memory. The driver writes source, destination and length, sets OWN last, issues a write barrier and rings the TAIL doorbell. The engine fetches the descriptor, copies 8 bytes per beat, writes back OWN cleared and DONE set, and only then advances HEAD and DONE_CNT in the same cycle. The driver reaps by reading DONE from memory, so the fast path never touches a register.
 
-It needs Java 11 or later, Python 3, Icarus Verilog and Verilator. The script downloads `tla2tools.jar` on first run.
+An early version updated DONE_CNT one cycle after writing DONE, and the driver could read a stale count. The fix is in the RTL, and the harness checks the count after every run.
 
-## Design choices
+**Benchmark** (`bench/run.sh`). The memory port takes one request per cycle and is shared between reads and writes, so the ceiling is 4 bytes per cycle. Reads can be outstanding up to `MAX_RD`.
 
-**Small models, honest bounds.** Every TLA+ model is checked exhaustively at a small size (three caches, three cores, one line, one page). That proves the invariant for that configuration, not for every size. The bounds are in each `.cfg` file.
+| Copy size | Latency 1 | Latency 8 | Latency 32, MAX_RD 8 | Latency 32, MAX_RD 32 |
+|---|---|---|---|---|
+| 64 B | 2.46 B/cycle | 1.88 | 0.78 | 0.78 |
+| 512 B | 3.71 | 3.35 | 1.39 | 2.99 |
+| 4 KiB | 3.96 | 3.71 | 1.54 | 3.79 |
+| 64 KiB | 4.00 | 3.76 | 1.56 | 3.93 |
 
-**Atomic bus.** The coherence models treat each bus transaction as one step. They check the stable state protocol, not transient states, so they say nothing yet about races in a directory or a CHI style interconnect. Transient states are the next step.
+At latency 32 with 8 reads in flight the engine is bound by Little's law: 8 beats of 8 bytes per round trip. With 32 in flight it gets back to within 2 percent of the ceiling. Small copies are bound by the descriptor fetch and writeback, which is the case for batching or prefetching descriptors.
 
-**Failing variants on purpose.** The `_bug.cfg` configs are expected to fail. A model that can never fail checks nothing, so each safety property ships with the one change that breaks it.
+**Waveform.** `bench/wave/dma_two_descriptors.png` is the simulated logic analyser view of two 64 byte descriptors at latency 4, rendered from the VCD by `bench/vcd_view.py`.
 
-**The relaxed model is a teaching model.** It allows any reordering of independent accesses unless a fence, an acquire or a release forbids it. It ignores dependencies and multi copy atomicity, so it is close to Release Consistency in spirit and is not the Arm or RISC-V axiomatic model. Those belong in herd7 or Sail, which this repo does not use yet.
+## Synthesis
 
-## Coherence states and AMBA CHI
+Yosys `synth_ecp5`, then nextpnr place and route out of context (no IO buffers) on a Lattice LFE5U-25F, seed 1. These are open tool estimates on a small FPGA, not vendor tool or ASIC numbers.
 
-CHI names its cache states by validity, uniqueness and dirtiness. The MOESI model maps onto the CHI stable states like this:
+| Module | LUT4 | FF | Carry | Post route Fmax |
+|---|---|---|---|---|
+| dma_engine (MAX_RD 8) | 966 | 954 | 154 | 129.10 MHz |
+| tlb (4 entries) | 912 | 166 | 0 | 115.47 MHz |
+| cfg_space | 138 | 75 | 0 | no register to register path |
+| tlp_hdr_decode | 74 | 0 | 0 | combinational |
+
+At 129.10 MHz the DMA ceiling of 4 bytes per cycle is about 516 MB/s. Fmax for MAX_RD 32 has not been measured.
+
+## Litmus tests on silicon
+
+`memory-models/hw/litmus_hw.c` runs each test 2,000,000 times on two threads with plain LDR and STR, DMB ISH, or LDAR and STLR. Host: Arm Neoverse V2 (MIDR part 0xd4f), Linux, run 2026-11-14.
+
+| Test | Relaxed outcome | Seen |
+|---|---|---|
+| SB | r0=0, r1=0 | 10,576 |
+| SB+dmb | r0=0, r1=0 | 0 |
+| MP | r0=1, r1=0 | 181 |
+| MP+dmb | r0=1, r1=0 | 0 |
+| MP+stlr+ldar | r0=1, r1=0 | 0 |
+| LB | r0=1, r1=1 | 0 |
+
+MP reordering shows up on real hardware, and both fixes remove it. LB is allowed by the architecture and was not observed in this run, which is usual on current cores and is not proof it cannot happen. Counts vary run to run; CI only asserts that fenced variants never show the relaxed outcome.
+
+## CHI mapping
 
 | MOESI | CHI | Meaning |
 |---|---|---|
-| M | UD (Unique Dirty) | Only copy, modified |
-| E | UC (Unique Clean) | Only copy, matches memory |
-| S | SC (Shared Clean) | One of several copies; this copy is not responsible for writeback |
-| O | SD (Shared Dirty) | Shared, and this copy is responsible for writeback |
-| I | I (Invalid) | No copy |
+| M | UD | Only copy, modified |
+| E | UC | Only copy, clean |
+| S | SC | Shared, not responsible for writeback |
+| O | SD | Shared, responsible for writeback |
+| I | I | No copy |
 
-CHI also defines UCE and UDP for partial lines, which these models do not cover.
+`CHIHome.tla` does not model UCE, UDP, direct memory or cache transfer (DMT, DCT), retry with protocol credits, or CompAck timing. The fairness result says what the arbiter has to guarantee, not how CHI implements it.
 
 ## Layout
 
 ```
-spec/
-  coherence/   MESI.tla, MOESI.tla
-  tlb/         TLBShootdown.tla (+ _bug variant)
-  pcie/        TLPOrdering.tla (+ _bug variant)
-memory-models/ litmus.py
-rtl/           tlp_hdr_decode.sv, tlb.sv, tb/
-scripts/       check.sh
-docs/          references.md
+spec/            TLA+: chi/, coherence/, tlb/, pcie/
+rtl/pcie/        cfg_space.sv, tlp_hdr_decode.sv
+rtl/dma/         dma_engine.sv
+rtl/mmu/         tlb.sv
+rtl/tb/          Icarus testbenches
+driver/          dma_drv.c, dma_drv.h
+bench/           Verilator harness, run.sh, synth.sh, vcd_view.py, results/, wave/
+memory-models/   litmus.py (models), hw/litmus_hw.c (silicon)
+scripts/check.sh everything, with expected passes and expected failures
+docs/            references.md
 ```
+
+Requirements: Java 11 or later, Python 3, Icarus Verilog, Verilator, a C compiler, and optionally Yosys and nextpnr-ecp5. Matplotlib only for the waveform image.
 
 ## Roadmap
 
-1. Transient states and a directory for the coherence models, then a CHI request and snoop subset.
-2. PCIe completion ordering: a read completion must not pass posted writes headed the same way.
-3. SystemVerilog assertions on the TLB checked with a formal tool, not only simulated.
-4. Arm Stage 2 translation and TLBI semantics, cross checked against Sail.
+1. CHI: transient states at the RN-F, DCT, and retry with credits instead of strong fairness.
+2. DMA: descriptor prefetch, scatter gather, MSI on completion, and a Linux PCI driver skeleton using the same register map.
+3. PCIe: completion ordering and a TLP generator wired to the DMA engine.
+4. Formal: SystemVerilog assertions on the DMA handoff, checked with SymbiYosys.
+5. Arm: Stage 2 translation and TLBI semantics from DDI0487K, cross checked against QEMU target/arm.
 
 ## History
 
-The earlier IĀTŌ material (observation induced equivalence and notes on Arm EL2, Stage 2 isolation, KVM and SVE2) is preserved at the tag `archive/v1`.
-
-## References
-
-See [`docs/references.md`](docs/references.md). Vendor specifications are cited by document and section; no specification text is reproduced here.
+The earlier IĀTŌ material is preserved at the tag `archive/v1`.
 
 ## License
 

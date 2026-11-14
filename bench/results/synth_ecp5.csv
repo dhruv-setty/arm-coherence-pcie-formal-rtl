@@ -1,0 +1,5 @@
+module,LUT4,FF,CCU2C carry,fmax_mhz
+dma_engine,966,954,154,129.10
+cfg_space,138,75,0,no reg to reg path
+tlb,912,166,0,115.47
+tlp_hdr_decode,74,0,0,no reg to reg path

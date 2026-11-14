@@ -1,5 +1,5 @@
 tools/
 states/
 *_TTrace_*
-*.vvp
+obj_*/
 obj_dir/
