@@ -1,0 +1,18 @@
+name: results
+on:
+  push:
+    branches: [main]
+    paths: ["bench/**", "rtl/**", "driver/**", ".github/workflows/results.yml"]
+  workflow_dispatch:
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: benchmark-results
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bundle results
+        run: |
+          mkdir -p out && cp -r bench/results bench/wave out/
+          git log -1 --format='commit %H%n%cd' > out/COMMIT
+      - uses: actions/upload-artifact@v4
+        with: { name: iato-results, path: out }
