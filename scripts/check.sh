@@ -28,6 +28,7 @@ tlc spec/pcie TLPOrdering  TLPOrdering      pass
 tlc spec/pcie TLPOrdering  TLPOrdering_bug  fail
 tlc spec/chi  CHIHome      CHIHome          pass
 tlc spec/chi  CHIHome      CHIHome_starve   fail
+tlc spec/chi  CHIHomeCredits CHIHomeCredits pass
 
 python3 memory-models/litmus.py || fail=1
 
