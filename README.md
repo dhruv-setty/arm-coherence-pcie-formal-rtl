@@ -17,6 +17,7 @@ The series sits under the operating system. How caches agree on a value. How a C
 | DMA | `rtl/dma/dma_engine.sv`, `driver/dma_drv.c` | Descriptor ring engine with OWN and DONE handoff, driven by a C driver under Verilator. Every copy in the sweep is verified byte for byte |
 | MMU | `rtl/mmu/tlb.sv` | Fully associative TLB with fill, invalidate by VPN and invalidate all |
 | Memory models | `memory-models/litmus.py` | 15 expected allow or forbid results under SC, TSO and a simplified relaxed model all hold |
+| Sail | `spec/sail/` | TLBI by-VA operand layout from DDI0487K and the DMA descriptor OWN and DONE handoff, typechecked and compiled to C, with 14 executable assertions |
 | Silicon | `memory-models/hw/litmus_hw.c` | Litmus runs on a Neoverse V2 host; see below |
 
 ## DMA engine and driver
@@ -81,7 +82,7 @@ MP reordering shows up on real hardware, and both fixes remove it. LB is allowed
 ## Layout
 
 ```
-spec/            TLA+: chi/, coherence/, tlb/, pcie/
+spec/            TLA+: chi/, coherence/, tlb/, pcie/; Sail: sail/
 rtl/pcie/        cfg_space.sv, tlp_hdr_decode.sv
 rtl/dma/         dma_engine.sv
 rtl/mmu/         tlb.sv
@@ -93,7 +94,7 @@ scripts/check.sh everything, with expected passes and expected failures
 docs/            references.md
 ```
 
-Requirements: Java 11 or later, Python 3, Icarus Verilog, Verilator, a C compiler, and optionally Yosys and nextpnr-ecp5. Matplotlib only for the waveform image.
+Requirements: Java 11 or later, Python 3, Icarus Verilog, Verilator, a C compiler, and optionally Yosys, nextpnr-ecp5 and Sail 0.20 (with libgmp). Matplotlib only for the waveform image.
 
 ## Roadmap
 

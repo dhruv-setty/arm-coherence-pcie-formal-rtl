@@ -1,0 +1,6 @@
+# GitHub language stats. The RTL is SystemVerilog, a superset of Verilog;
+# it is reported under Verilog on purpose.
+*.sv linguist-language=Verilog
+*.sail linguist-language=Sail
+bench/results/** linguist-generated
+bench/wave/** linguist-generated

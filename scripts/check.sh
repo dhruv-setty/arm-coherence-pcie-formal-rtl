@@ -48,6 +48,16 @@ else echo "FAIL  dma bench"; cat "$sim/bench.txt"; fail=1; fi
 cc -O2 -pthread memory-models/hw/litmus_hw.c -o "$sim/litmus_hw" && "$sim/litmus_hw" 200000 > "$sim/lh.txt" \
   && echo "ok    hardware litmus ($(uname -m))" || { echo "FAIL  hardware litmus"; cat "$sim/lh.txt"; fail=1; }
 
+# Sail: typecheck, compile to C, run the executable checks.
+if command -v sail >/dev/null; then
+  L=$(sail -dir)/lib
+  if sail -c spec/sail/aarch64_tlbi.sail spec/sail/dma_desc.sail spec/sail/main.sail -o "$sim/iato_sail" \
+     && gcc -O1 "$sim/iato_sail.c" "$L"/*.c -I"$L" -lgmp -lz -o "$sim/iato_sail" 2>/dev/null \
+     && "$sim/iato_sail" | grep -q "^PASS"; then echo "ok    sail (TLBI operand, DMA descriptor handoff)"
+  else echo "FAIL  sail"; fail=1; fi
+  rm -f sail_smt_cache spec/sail/sail_smt_cache
+fi
+
 if command -v yosys >/dev/null; then
   bench/synth.sh > "$sim/synth.txt" 2>&1 && echo "ok    yosys synth_ecp5" || { echo "FAIL  synth"; cat "$sim/synth.txt"; fail=1; }
 fi
