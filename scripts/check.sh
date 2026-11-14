@@ -44,6 +44,12 @@ if bench/run.sh > "$sim/bench.txt" 2>&1 && ! grep -q ",NO$" bench/results/dma_ma
   echo "ok    dma bench (driver plus RTL, all copies verified)"
 else echo "FAIL  dma bench"; cat "$sim/bench.txt"; fail=1; fi
 
+# Same sweep with the SVA bound in and checked (--assert).
+( cd bench && rm -rf obj_sva && verilator -Wall -Wno-UNUSEDSIGNAL -Wno-SYNCASYNCNET --assert --trace --cc --exe --build -O2 \
+    --Mdir obj_sva ../rtl/dma/dma_engine.sv ../rtl/dma/dma_engine_sva.sv harness.cpp ../driver/dma_drv.c -CFLAGS -O2 -o dma_bench >/dev/null \
+  && ./obj_sva/dma_bench > /dev/null; r=$?; rm -rf obj_sva; exit $r ) \
+  && echo "ok    dma sva (6 assertions over the full sweep)" || { echo "FAIL  dma sva"; fail=1; }
+
 # Litmus on the host CPU: fenced variants must never show the relaxed outcome.
 cc -O2 -pthread memory-models/hw/litmus_hw.c -o "$sim/litmus_hw" && "$sim/litmus_hw" 200000 > "$sim/lh.txt" \
   && echo "ok    hardware litmus ($(uname -m))" || { echo "FAIL  hardware litmus"; cat "$sim/lh.txt"; fail=1; }
