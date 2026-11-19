@@ -1,0 +1,22 @@
+Icarus Verilog version 12.0 (stable) ()
+$ iverilog -g2012 -s tb_tlb -o tb_tlb.vvp rtl/mmu/tlb.sv rtl/tb/tb_tlb.sv
+$ vvp tb_tlb.vvp
+PASS tb_tlb
+rtl/tb/tb_tlb.sv:59: $finish called at 171 (1s)
+$ iverilog -g2012 -s tb_tlp_hdr_decode -o tb_tlp_hdr_decode.vvp rtl/pcie/tlp_hdr_decode.sv rtl/tb/tb_tlp_hdr_decode.sv
+$ vvp tb_tlp_hdr_decode.vvp
+PASS tb_tlp_hdr_decode
+rtl/tb/tb_tlp_hdr_decode.sv:60: $finish called at 6 (1s)
+$ iverilog -g2012 -s tb_enum -o tb_enum.vvp rtl/pcie/cfg_space.sv rtl/tb/tb_enum.sv
+rtl/pcie/cfg_space.sv:60: sorry: constant selects in always_* processes are not currently supported (all bits will be included).
+rtl/pcie/cfg_space.sv:60: sorry: constant selects in always_* processes are not currently supported (all bits will be included).
+rtl/pcie/cfg_space.sv:60: sorry: constant selects in always_* processes are not currently supported (all bits will be included).
+rtl/pcie/cfg_space.sv:60: sorry: constant selects in always_* processes are not currently supported (all bits will be included).
+rtl/pcie/cfg_space.sv:60: sorry: constant selects in always_* processes are not currently supported (all bits will be included).
+rtl/pcie/cfg_space.sv:60: sorry: constant selects in always_* processes are not currently supported (all bits will be included).
+$ vvp tb_enum.vvp
+bus 0 dev 1: vendor abcd device 0011  BAR0 4 KiB at c0000000  BAR2 1024 KiB at 0000004000000000
+bus 0 dev 3: vendor abcd device 0033  BAR0 64 KiB at c0010000  BAR2 16384 KiB at 0000004001000000
+PASS tb_enum
+rtl/tb/tb_enum.sv:103: $finish called at 460 (1s)
+exit status 0

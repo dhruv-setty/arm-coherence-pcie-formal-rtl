@@ -113,7 +113,7 @@ driver/          dma_drv.c, dma_drv.h
 bench/           Verilator harness, run.sh, synth.sh, vcd_view.py, results/, wave/
 memory-models/   litmus.py (models), hw/litmus_hw.c (silicon)
 scripts/check.sh everything, with expected passes and expected failures
-docs/            references.md, RESULTS.md
+docs/            references.md, RESULTS.md, screenshots/, capture/ (schematic and screenshot scripts)
 ```
 
 ## Requirements
@@ -172,6 +172,30 @@ cc -O2 -pthread memory-models/hw/litmus_hw.c -o litmus_hw
 | Memory models | `memory-models/litmus.py` | 15 expected allow or forbid results under SC, TSO and a simplified relaxed model all hold |
 | Sail | `spec/sail/` | Typechecked and compiled to C, 14 executable assertions pass |
 | Silicon | `memory-models/hw/litmus_hw.c` | Litmus runs on a Neoverse V2 host; see below |
+
+### RTL schematics and testbench captures
+
+Every image in this section was produced by [`.github/workflows/captures.yml`](.github/workflows/captures.yml) on an `ubuntu-24.04` runner from the RTL in this repository: the schematics by Yosys and netlistsvg, the rest as screenshots of a real X display (Xvfb). Rerun the workflow to regenerate them. The design is digital throughout; it has no analog or mixed-signal blocks.
+
+**Schematic, `tlp_hdr_decode`.** RTL-level netlist after Yosys `proc` and `opt`, before technology mapping: header bit fields fan out to the type, length, byte enable and address decode. [SVG](docs/screenshots/schematic_tlp_hdr_decode.svg)
+
+![Yosys and netlistsvg schematic of tlp_hdr_decode](docs/screenshots/schematic_tlp_hdr_decode.png)
+
+**Schematic, `tlb` with `ENTRIES = 4`.** The four VPN and PPN registers, the parallel compare that drives `hit`, the round robin victim counter and the invalidate paths. [SVG](docs/screenshots/schematic_tlb.svg)
+
+![Yosys and netlistsvg schematic of the four entry TLB](docs/screenshots/schematic_tlb.png)
+
+**Testbenches open in Geany, with Icarus Verilog 12.0 running them.** All three testbenches print `PASS`. The `sorry: constant selects` lines are Icarus warnings on `cfg_space.sv`; Verilator lints the same file clean in `scripts/check.sh`. The full log is in [docs/screenshots/sim.log](docs/screenshots/sim.log).
+
+![Geany with tb_tlb.sv active and the simulation log below](docs/screenshots/testbench_1-tb_tlb.png)
+
+![Geany with tb_tlp_hdr_decode.sv active](docs/screenshots/testbench_2-tb_tlp_hdr_decode.png)
+
+![Geany with tb_enum.sv active](docs/screenshots/testbench_3-tb_enum.png)
+
+**`tb_tlb` waveform in GTKWave.** Fill, refill in place, round robin eviction of entry `00010`, invalidate by VPN and invalidate all, with `errors` held at 0. The testbench sets no `timescale`, so GTKWave labels the simulator time steps in seconds.
+
+![GTKWave view of the tb_tlb VCD](docs/screenshots/waveform_tb_tlb.png)
 
 ### DMA benchmark
 
