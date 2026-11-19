@@ -11,7 +11,8 @@ for spec in tlb:rtl/mmu/tlb.sv tlp_hdr_decode:rtl/pcie/tlp_hdr_decode.sv; do
   top=${spec%%:*}; src=${spec##*:}
   yosys -q -p "read_verilog -sv $src; hierarchy -top $top; proc; opt -full; clean; write_json $OUT/$top.json"
   netlistsvg "$OUT/$top.json" -o "$shots/schematic_$top.svg"
-  rsvg-convert -b white -w 1600 "$shots/schematic_$top.svg" -o "$shots/schematic_$top.png"
+  w=1600; [ "$top" = tlb ] && w=3200
+  rsvg-convert -b white -w "$w" "$shots/schematic_$top.svg" -o "$shots/schematic_$top.png"
 done
 
 # 2. Simulations, also writing VCDs.
@@ -23,7 +24,7 @@ Xvfb :99 -screen 0 1600x1000x24 -nolisten tcp & sleep 2
 openbox & sleep 1
 cfg=$(mktemp -d); mkdir -p "$cfg"
 printf '[geany]\npref_main_load_session=false\nmsgwindow_visible=false\nsidebar_visible=true\npref_toolbar_show=true\n' > "$cfg/geany.conf"
-geany -c "$cfg" -i rtl/tb/tb_enum.sv rtl/tb/tb_tlp_hdr_decode.sv rtl/tb/tb_tlb.sv >/dev/null 2>&1 &
+geany -c "$cfg" rtl/tb/tb_enum.sv rtl/tb/tb_tlp_hdr_decode.sv rtl/tb/tb_tlb.sv >/dev/null 2>&1 &
 gw=$(xdotool search --sync --onlyvisible --class Geany | head -1)
 xdotool windowmove "$gw" 0 0 windowsize "$gw" 1600 640; sleep 2
 xterm -geometry 200x22+0+640 -fa 'DejaVu Sans Mono' -fs 10 -bg '#1e1e1e' -fg '#d4d4d4' -T 'iverilog: run_tbs.sh' \
@@ -31,9 +32,9 @@ xterm -geometry 200x22+0+640 -fa 'DejaVu Sans Mono' -fs 10 -bg '#1e1e1e' -fg '#d
 sleep 8
 i=1
 for tb in tb_tlb tb_tlp_hdr_decode tb_enum; do
+  geany -c "$cfg" "rtl/tb/$tb.sv" >/dev/null 2>&1; sleep 2   # switches the running instance to this tab
   xdotool windowactivate --sync "$gw"; sleep 1
   import -window root "$shots/testbench_$i-$tb.png"
-  xdotool key --window "$gw" ctrl+Page_Up; sleep 1
   i=$((i+1))
 done
 
@@ -43,10 +44,10 @@ set sigs [list tb_tlb.clk tb_tlb.rst_n tb_tlb.fill_en tb_tlb.fill_vpn tb_tlb.fil
 gtkwave::addSignalsFromList $sigs
 gtkwave::/Time/Zoom/Zoom_Best_Fit
 TCL
-gtkwave "$OUT/tb_tlb.vcd" -S "$OUT/tlb.tcl" >/dev/null 2>&1 &
+gtkwave --rcvar "initial_window_x 1600" --rcvar "initial_window_y 560" "$OUT/tb_tlb.vcd" -S "$OUT/tlb.tcl" >/dev/null 2>&1 &
 ww=$(xdotool search --sync --onlyvisible --class gtkwave | head -1)
-xdotool windowmove "$ww" 0 0 windowsize "$ww" 1600 1000; sleep 4
+xdotool windowmove "$ww" 0 0; sleep 4
 xdotool windowactivate --sync "$ww"; sleep 1
-import -window root "$shots/waveform_tb_tlb.png"
+import -window "$ww" "$shots/waveform_tb_tlb.png"
 cp "$OUT/sim.log" "$shots/sim.log"
 cat "$OUT/sim.log"
