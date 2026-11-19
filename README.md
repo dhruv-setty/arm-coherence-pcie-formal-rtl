@@ -193,7 +193,7 @@ Every image in this section was produced by [`.github/workflows/captures.yml`](.
 
 ![Geany with tb_enum.sv active](docs/screenshots/testbench_3-tb_enum.png)
 
-**`tb_tlb` waveform in GTKWave.** Fill, refill in place, round robin eviction of entry `00010`, invalidate by VPN and invalidate all, with `errors` held at 0. The testbench sets no `timescale`, so GTKWave labels the simulator time steps in seconds.
+**`tb_tlb` waveform in GTKWave.** Fill, refill in place, a fifth fill that evicts the round robin victim, invalidate by VPN and invalidate all, with `errors` held at 0. The testbench sets no `timescale`, so GTKWave labels the simulator time steps in seconds.
 
 ![GTKWave view of the tb_tlb VCD](docs/screenshots/waveform_tb_tlb.png)
 
