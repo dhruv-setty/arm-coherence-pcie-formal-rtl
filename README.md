@@ -4,21 +4,57 @@ IATO (Intent to Auditable Trust Object) is the monolith of the IATO series: a si
 
 The key words MUST, MUST NOT, SHALL, SHOULD and MAY in this document are to be interpreted as described in BCP 14 (RFC 2119 and RFC 8174).
 
-## Scope
+## Contents
 
-In scope:
+- [Key features](#key-features)
+- [Scope](#scope)
+- [Architecture](#architecture)
+- [Repository layout](#repository-layout)
+- [Requirements](#requirements)
+- [Build](#build)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Verification and testing](#verification-and-testing)
+- [Figures](#figures)
+- [Security](#security)
+- [License](#license)
+
+## Key features
+
+IATO has four parts. Each one pairs a written specification with something that runs: RTL in simulation and synthesis, a C driver, or a test on silicon.
+
+| # | Feature | What runs | Checked by |
+|---|---|---|---|
+| 1 | [Cache coherence and memory models](#1-cache-coherence-and-memory-models) | Litmus program on Arm Neoverse V2 | TLA+ (TLC), litmus models |
+| 2 | [PCIe device front end](#2-pcie-device-front-end) | `cfg_space.sv`, `tlp_hdr_decode.sv` | TLA+, Icarus testbenches, Yosys |
+| 3 | [DMA engine and driver](#3-dma-engine-and-driver) | `dma_engine.sv` with `dma_drv.c` under Verilator | Sail, Verilator benchmark, Yosys |
+| 4 | [MMU and TLB shootdown](#4-mmu-and-tlb-shootdown) | `tlb.sv` | TLA+, Sail, Icarus testbench, Yosys |
+
+### 1. Cache coherence and memory models
 
 - CHI coherence: RN-F states I, UC, UD, SC and SD with an HN-F that serialises ReadShared, ReadUnique and WriteBackFull, one snoop per step (`spec/chi/CHIHome.tla`).
 - Atomic bus MESI and MOESI baselines (`spec/coherence/MESI.tla`, `spec/coherence/MOESI.tla`).
-- TLB shootdown: no core keeps a translation to a freed frame (`spec/tlb/TLBShootdown.tla`).
+- Memory models: 15 expected allow or forbid results under SC, TSO and a simplified relaxed model (`memory-models/litmus.py`).
+- Litmus tests on an Arm Neoverse V2 host (`memory-models/hw/litmus_hw.c`).
+
+### 2. PCIe device front end
+
 - PCIe posted-write ordering with and without Relaxed Ordering (`spec/pcie/TLPOrdering.tla`).
 - PCIe enumeration: a Type 0 configuration header with a 32 bit BAR and a 64 bit prefetchable BAR pair (`rtl/pcie/cfg_space.sv`, `rtl/tb/tb_enum.sv`).
 - PCIe TLP decode: 3DW and 4DW memory request and completion headers with byte enable checks (`rtl/pcie/tlp_hdr_decode.sv`).
+
+### 3. DMA engine and driver
+
 - A descriptor ring DMA engine with OWN and DONE handoff, driven by a C driver under Verilator (`rtl/dma/dma_engine.sv`, `driver/dma_drv.c`).
+- The DMA descriptor OWN and DONE handoff in Sail, part of the 14 executable assertions in `spec/sail/`.
+
+### 4. MMU and TLB shootdown
+
 - A fully associative TLB with fill, invalidate by VPN and invalidate all (`rtl/mmu/tlb.sv`).
-- Memory models: 15 expected allow or forbid results under SC, TSO and a simplified relaxed model (`memory-models/litmus.py`).
-- Sail: the TLBI by-VA operand layout from DDI0487K and the DMA descriptor OWN and DONE handoff, with 14 executable assertions (`spec/sail/`).
-- Litmus tests on an Arm Neoverse V2 host (`memory-models/hw/litmus_hw.c`).
+- TLB shootdown: no core keeps a translation to a freed frame (`spec/tlb/TLBShootdown.tla`).
+- The TLBI by-VA operand layout from DDI0487K in Sail (`spec/sail/`).
+
+## Scope
 
 Out of scope:
 
@@ -41,6 +77,8 @@ Planned work (not implemented):
 3. PCIe: completion ordering and a TLP generator wired to the DMA engine.
 4. Formal: SystemVerilog assertions on the DMA handoff, checked with SymbiYosys.
 5. Arm: Stage 2 translation and TLBI semantics from DDI0487K, cross checked against QEMU target/arm.
+
+## Architecture
 
 ### System overview
 
@@ -85,7 +123,7 @@ How one copy moves through the pieces, and which specification covers each hop.
  +----------------+
 ```
 
-### DMA engine and driver
+### DMA descriptor handoff
 
 The engine walks a ring of 32 byte descriptors in host memory. The driver MUST write source, destination and length, set OWN last, issue a write barrier and then ring the TAIL doorbell. The engine fetches the descriptor, copies 8 bytes per beat, writes back OWN cleared and DONE set, and only then advances HEAD and DONE_CNT in the same cycle. The driver reaps by reading DONE from memory, so the fast path does not touch a register.
 
@@ -101,7 +139,7 @@ An early version updated DONE_CNT one cycle after writing DONE, and the driver c
 | O | SD | Shared, responsible for writeback |
 | I | I | No copy |
 
-### Repository layout
+## Repository layout
 
 ```
 spec/            TLA+: chi/, coherence/, tlb/, pcie/; Sail: sail/
