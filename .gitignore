@@ -4,3 +4,4 @@ states/
 obj_*/
 obj_dir/
 sail_smt_cache
+build/

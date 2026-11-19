@@ -1,0 +1,17 @@
+name: captures
+on:
+  push:
+    branches: [main, captures]
+    paths: ["docs/capture/**", "rtl/**", ".github/workflows/captures.yml"]
+  workflow_dispatch:
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y iverilog yosys gtkwave geany xvfb openbox xterm xdotool imagemagick librsvg2-bin fonts-dejavu
+      - run: sudo npm install -g netlistsvg
+      - run: ./docs/capture/capture.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: iato-captures, path: docs/screenshots }
