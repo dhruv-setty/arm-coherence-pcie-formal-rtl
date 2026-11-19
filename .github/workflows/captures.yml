@@ -1,7 +1,7 @@
 name: captures
 on:
   push:
-    branches: [main, captures]
+    branches: [main]
     paths: ["docs/capture/**", "rtl/**", ".github/workflows/captures.yml"]
   workflow_dispatch:
 jobs:
